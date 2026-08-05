@@ -40,6 +40,8 @@ def eliminate_position(draws: list[Draw], position: int, cfg: Config) -> Positio
         outcomes.append(
             rules.hot_exclusion(draws, position, cfg.rules.hot_exclusion.top_k)
         )
+    if cfg.rules.adjacent_exclusion.enabled:
+        outcomes.append(rules.adjacent_exclusion(draws, position))
 
     for outcome in outcomes:
         surviving = candidates - outcome.removed

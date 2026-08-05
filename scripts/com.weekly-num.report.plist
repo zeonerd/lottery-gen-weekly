@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  weekly-num 주간 리포트 자동 실행 (매주 수요일 20:00)
+
+  설치는 scripts/install-launchd.sh 를 쓰십시오. __PROJECT_DIR__ 자리에
+  실제 경로가 채워진 파일이 ~/Library/LaunchAgents/ 로 복사됩니다.
+
+  주의: StartCalendarInterval 은 지정 시각에 맥이 잠들어 있으면 건너뛰지 않고
+  깨어난 직후 실행합니다. 목요일 추첨이 끝난 뒤 실행될 수 있으므로,
+  발송 전에 pipeline.draw_already_passed() 가드가 한 번 더 확인합니다.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.weekly-num.report</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PROJECT_DIR__/.venv/bin/weekly-num</string>
+        <string>report</string>
+        <string>--send</string>
+        <string>--quiet</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>3</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__PROJECT_DIR__/logs/report.log</string>
+    <key>StandardErrorPath</key>
+    <string>__PROJECT_DIR__/logs/report.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

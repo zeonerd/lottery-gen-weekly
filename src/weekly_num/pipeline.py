@@ -16,7 +16,10 @@ from .collector import fetcher
 from .config import Config
 from .drawer import draw_random, make_rng
 from .models import Draw
-from .reporter import builder, markdown, terminal
+from .notifier.base import DeliveryResult
+from .notifier.file import FileNotifier
+from .notifier.telegram import TelegramNotifier, load_env
+from .reporter import builder, terminal
 from .storage.repository import Repository
 from .strategy import spread
 
@@ -71,20 +74,54 @@ def build_report(
         random_tickets=random_tickets,
         recommendation=recommendation,
         cfg=cfg,
-        active_rules=rules.active_rules(cfg.rules),
+        active_rules=rules.active_rules(cfg.rules, cfg.strategy.tickets),
         seed=seed,
         warnings=warnings,
     )
 
 
+def draw_already_passed(target_date: date, today: date | None = None) -> bool:
+    """대상 회차의 추첨이 이미 지났는지 확인한다 (PRD §9).
+
+    launchd의 `StartCalendarInterval`은 지정 시각에 맥이 잠들어 있으면
+    건너뛰지 않고 **깨어난 직후** 실행한다. 그대로 두면 목요일 추첨이
+    끝난 뒤에 "이번 주 추천"이 날아간다.
+    """
+    return (today or date.today()) > target_date
+
+
 def save_report(data: builder.ReportData, directory: Path = REPORTS_DIR) -> Path:
     """마크다운 리포트를 파일로 남긴다. 알림이 실패해도 이건 남는다(PRD F4-4)."""
-    directory.mkdir(parents=True, exist_ok=True)
-    iso = data.target_date.isocalendar()
-    path = directory / f"{iso.year}-W{iso.week:02d}-{data.target_round}회.md"
-    text = markdown.render(data)
-    path.write_text(text, encoding="utf-8")
-    return path
+    notifier = FileNotifier(directory)
+    result = notifier.send(data)
+    if not result.ok:
+        raise OSError(result.detail)
+    return notifier.path_for(data)
+
+
+def deliver(
+    data: builder.ReportData, cfg: Config, force: bool = False
+) -> list[DeliveryResult]:
+    """설정된 채널로 리포트를 전달한다.
+
+    파일 저장은 항상 먼저 수행한다. 외부 채널이 죽어도 리포트는 남아야 한다.
+    """
+    results = [FileNotifier().send(data)]
+
+    if draw_already_passed(data.target_date) and not force:
+        results.append(
+            DeliveryResult(
+                cfg.notify.channel, False,
+                f"{data.target_round}회 추첨({data.target_date})이 이미 지나 발송을 중단했습니다"
+                " (--force 로 무시 가능)",
+            )
+        )
+        return results
+
+    if cfg.notify.channel == "telegram":
+        load_env()
+        results.append(TelegramNotifier().send(data))
+    return results
 
 
 def persist_recommendation(

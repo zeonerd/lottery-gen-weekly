@@ -14,6 +14,19 @@ rules:
   cold_preference:     # R3 — 오래 잠든 숫자에 가산점 (소거 아님, 선택 가중치)
     enabled: true
     weight: 1.5
+  adjacent_exclusion:  # R4 — 직전 회차 값의 ±1 제외
+    enabled: false
+  parity_balance:      # R5 — 홀짝이 극단(6:0, 0:6)이면 재추첨
+    enabled: true
+    min_odd: 1
+    max_odd: 5
+  sum_range:           # R6 — 자리합이 과거 분포 중앙 80% 구간에 들도록
+    enabled: true
+    low_pct: 10
+    high_pct: 90
+  group_rotation:      # R7 — 5장이 1~5조를 모두 덮으면 무효 (리포트에 표기됨)
+    enabled: false
+    lookback: 4
 
 strategy:
   mode: spread         # spread | concentrate  (기본: spread)
@@ -21,7 +34,7 @@ strategy:
   tail_diversity: true # R8 — false로 두면 설정 검증에서 오류. 분산 전략의 전제.
 
 notify:
-  channel: file        # Phase 2에서 telegram 으로 전환
+  channel: telegram    # file | telegram | discord
   schedule: "WED 20:00"
   parse_mode: HTML     # Telegram 전용. MarkdownV2 금지 (PRD F4-4)
   fallback_to_file: true

@@ -68,6 +68,57 @@ def assign_tails(
     return rng.sample(pool, k=count), note
 
 
+MAX_RESAMPLE = 50
+
+
+def _violations(
+    digits: tuple[int, ...], cfg: Config, bounds: tuple[int, int] | None
+) -> list[str]:
+    """조합 수준 규칙(R5 홀짝, R6 자리합) 위반 사유를 모은다."""
+    reasons = []
+    if cfg.rules.parity_balance.enabled:
+        r = rules.check_parity(
+            digits, cfg.rules.parity_balance.min_odd, cfg.rules.parity_balance.max_odd
+        )
+        if r:
+            reasons.append(f"R5 {r}")
+    if cfg.rules.sum_range.enabled and bounds:
+        r = rules.check_sum(digits, *bounds)
+        if r:
+            reasons.append(f"R6 {r}")
+    return reasons
+
+
+def _compose(
+    draws: list[Draw],
+    position_logs: list[PositionLog],
+    cfg: Config,
+    rng: random.Random,
+    tail: int | None,
+    bounds: tuple[int, int] | None,
+) -> tuple[tuple[int, ...], str | None]:
+    """R5·R6을 만족하는 한 장을 만든다. 실패하면 마지막 시도를 쓰고 사유를 남긴다.
+
+    무한 재시도는 하지 않는다. 소거로 후보가 좁아진 상태에서는 어떤 조합으로도
+    제약을 만족하지 못할 수 있는데, 그때 멈추면 리포트 자체가 안 나온다.
+    """
+    positions = range(NUM_POSITIONS - 1) if tail is not None else range(NUM_POSITIONS)
+    digits: tuple[int, ...] = ()
+    reasons: list[str] = []
+    for _ in range(MAX_RESAMPLE):
+        picked = tuple(
+            _pick(draws, p, list(position_logs[p].final), cfg, rng) for p in positions
+        )
+        digits = picked + (tail,) if tail is not None else picked
+        reasons = _violations(digits, cfg, bounds)
+        if not reasons:
+            return digits, None
+    return digits, (
+        f"{MAX_RESAMPLE}회 재시도 후에도 조합 제약 미충족 ({', '.join(reasons)}) "
+        "— 제약을 완화해 채택했습니다"
+    )
+
+
 def build_recommendation(
     draws: list[Draw],
     position_logs: list[PositionLog],
@@ -77,12 +128,16 @@ def build_recommendation(
     """소거 결과로부터 최종 5장을 구성한다."""
     count = cfg.strategy.tickets
     notes: list[str] = []
+    bounds = (
+        rules.sum_bounds(draws, cfg.rules.sum_range.low_pct, cfg.rules.sum_range.high_pct)
+        if cfg.rules.sum_range.enabled
+        else None
+    )
 
     if cfg.strategy.mode == "concentrate":
-        digits = tuple(
-            _pick(draws, p, list(position_logs[p].final), cfg, rng)
-            for p in range(NUM_POSITIONS)
-        )
+        digits, note = _compose(draws, position_logs, cfg, rng, None, bounds)
+        if note:
+            notes.append(note)
         tickets = [Ticket(g, digits) for g in GROUPS[:count]]
         notes.append("집중(concentrate) 모드: 5장 모두 동일 번호 — 기본값이 아닙니다.")
         return Recommendation(tickets=tickets, position_logs=position_logs, notes=notes)
@@ -93,11 +148,10 @@ def build_recommendation(
 
     tickets: list[Ticket] = []
     for group_no, tail in zip(GROUPS[:count], tails):
-        head = tuple(
-            _pick(draws, p, list(position_logs[p].final), cfg, rng)
-            for p in range(NUM_POSITIONS - 1)
-        )
-        tickets.append(Ticket(group_no=group_no, digits=head + (tail,)))
+        digits, warn = _compose(draws, position_logs, cfg, rng, tail, bounds)
+        if warn:
+            notes.append(f"{group_no}조: {warn}")
+        tickets.append(Ticket(group_no=group_no, digits=digits))
 
     verify(tickets)
     return Recommendation(tickets=tickets, position_logs=position_logs, notes=notes)

@@ -9,11 +9,13 @@ import typer
 from .config import load_config
 from .drawer import draw_random, make_rng
 from .models import evaluate_rank, RANK_LABEL
+from .notifier.file import FileNotifier
+from .notifier.telegram import TelegramNotifier, load_env
 from .pipeline import (
     build_report,
+    deliver,
     persist_recommendation,
     render_terminal,
-    save_report,
     sync,
 )
 from .storage.repository import DEFAULT_DB_PATH, Repository
@@ -67,9 +69,11 @@ def report(
     db: Path = DbOpt,
     seed: int | None = SeedOpt,
     no_sync: bool = typer.Option(False, "--no-sync", help="수집을 건너뜁니다"),
-    save: bool = typer.Option(True, help="reports/ 에 마크다운 저장"),
+    send: bool = typer.Option(False, "--send", help="설정된 알림 채널로 발송합니다"),
+    force: bool = typer.Option(False, "--force", help="추첨이 지났어도 발송합니다"),
+    quiet: bool = typer.Option(False, "--quiet", help="터미널 출력을 생략합니다"),
 ) -> None:
-    """주간 리포트를 생성합니다 (수집 → 분석 → 리포트)."""
+    """주간 리포트를 생성합니다 (수집 → 분석 → 리포트 → 저장/발송)."""
     cfg = load_config()
     warnings: list[str] = []
     with Repository(db) as repo:
@@ -78,11 +82,30 @@ def report(
             warnings.extend(issues)
         draws = repo.all_draws()
         data = build_report(draws, cfg, seed=seed, warnings=warnings)
-        typer.echo(render_terminal(data))
-        if save:
-            path = save_report(data)
-            persist_recommendation(repo, data, cfg)
-            typer.echo(f"\n저장: {path}")
+        if not quiet:
+            typer.echo(render_terminal(data))
+
+        if send:
+            results = deliver(data, cfg, force=force)
+        else:
+            results = [FileNotifier().send(data)]
+        persist_recommendation(repo, data, cfg)
+
+        typer.echo("")
+        for r in results:
+            mark = "✅" if r.ok else "⚠"
+            typer.echo(f"{mark} {r.channel}: {r.detail}", err=not r.ok)
+
+
+@app.command("notify-test")
+def notify_test() -> None:
+    """텔레그램 자격증명을 점검합니다 (읽기 전용 — 메시지를 보내지 않습니다)."""
+    load_env()
+    result = TelegramNotifier().verify()
+    mark = "✅" if result.ok else "❌"
+    typer.echo(f"{mark} {result.channel}: {result.detail}")
+    if not result.ok:
+        raise typer.Exit(1)
 
 
 @app.command()

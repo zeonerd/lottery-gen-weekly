@@ -33,10 +33,35 @@ class ColdPreference(BaseModel):
     weight: float = Field(default=1.5, ge=1.0)
 
 
+class AdjacentExclusion(BaseModel):
+    enabled: bool = False
+
+
+class ParityBalance(BaseModel):
+    enabled: bool = True
+    min_odd: int = Field(default=1, ge=0, le=6)
+    max_odd: int = Field(default=5, ge=0, le=6)
+
+
+class SumRange(BaseModel):
+    enabled: bool = True
+    low_pct: float = Field(default=10.0, ge=0, lt=50)
+    high_pct: float = Field(default=90.0, gt=50, le=100)
+
+
+class GroupRotation(BaseModel):
+    enabled: bool = False
+    lookback: int = Field(default=4, ge=1)
+
+
 class RulesConfig(BaseModel):
     recent_exclusion: RecentExclusion = RecentExclusion()
     hot_exclusion: HotExclusion = HotExclusion()
     cold_preference: ColdPreference = ColdPreference()
+    adjacent_exclusion: AdjacentExclusion = AdjacentExclusion()
+    parity_balance: ParityBalance = ParityBalance()
+    sum_range: SumRange = SumRange()
+    group_rotation: GroupRotation = GroupRotation()
 
 
 class StrategyConfig(BaseModel):
