@@ -30,6 +30,17 @@ CREATE TABLE IF NOT EXISTS recommendations (
 
 CREATE INDEX IF NOT EXISTS idx_rec_target ON recommendations(target_round);
 
+-- 발송 이력
+-- 목적은 중복 발송 방지다. 맥이 꺼져 있어 예약 시각을 놓친 경우를 위해
+-- 로그인할 때마다 실행하는데(RunAtLoad), 그때 이미 보낸 회차를 다시
+-- 보내면 로그인할 때마다 같은 메시지가 날아간다.
+CREATE TABLE IF NOT EXISTS deliveries (
+    target_round INTEGER NOT NULL,
+    channel      TEXT NOT NULL,
+    sent_at      TEXT NOT NULL,
+    PRIMARY KEY (target_round, channel)
+);
+
 -- 당첨 결과 대조
 CREATE TABLE IF NOT EXISTS outcomes (
     recommendation_id INTEGER PRIMARY KEY REFERENCES recommendations(id),

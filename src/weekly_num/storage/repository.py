@@ -105,6 +105,22 @@ class Repository:
         )
         self.conn.commit()
 
+    # --- deliveries --------------------------------------------------
+    def was_delivered(self, target_round: int, channel: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM deliveries WHERE target_round = ? AND channel = ?",
+            (target_round, channel),
+        ).fetchone()
+        return row is not None
+
+    def mark_delivered(self, target_round: int, channel: str) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO deliveries (target_round, channel, sent_at)"
+            " VALUES (?,?,?)",
+            (target_round, channel, _now()),
+        )
+        self.conn.commit()
+
     def recommendations_for(self, target_round: int) -> list[tuple[int, str, Ticket]]:
         rows = self.conn.execute(
             "SELECT id, strategy, group_no, numbers FROM recommendations"

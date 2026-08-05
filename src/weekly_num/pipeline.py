@@ -100,27 +100,55 @@ def save_report(data: builder.ReportData, directory: Path = REPORTS_DIR) -> Path
 
 
 def deliver(
-    data: builder.ReportData, cfg: Config, force: bool = False
+    data: builder.ReportData,
+    cfg: Config,
+    force: bool = False,
+    repo: Repository | None = None,
 ) -> list[DeliveryResult]:
     """설정된 채널로 리포트를 전달한다.
 
     파일 저장은 항상 먼저 수행한다. 외부 채널이 죽어도 리포트는 남아야 한다.
+
+    외부 채널에는 두 개의 가드가 걸린다.
+
+    1. 추첨이 이미 지났으면 보내지 않는다 — 늦게 도착한 추천은 쓸모가 없다.
+    2. 같은 회차를 이미 보냈으면 보내지 않는다 — 맥이 꺼져 예약을 놓친 경우를
+       대비해 로그인할 때마다 실행하므로(RunAtLoad), 이 가드가 없으면
+       로그인할 때마다 같은 메시지가 날아간다.
+
+    둘 다 `force=True` 로 무시할 수 있다.
     """
     results = [FileNotifier().send(data)]
+    channel = cfg.notify.channel
+
+    if channel == "file":
+        return results
 
     if draw_already_passed(data.target_date) and not force:
         results.append(
             DeliveryResult(
-                cfg.notify.channel, False,
+                channel, False,
                 f"{data.target_round}회 추첨({data.target_date})이 이미 지나 발송을 중단했습니다"
                 " (--force 로 무시 가능)",
             )
         )
         return results
 
-    if cfg.notify.channel == "telegram":
+    if repo is not None and repo.was_delivered(data.target_round, channel) and not force:
+        results.append(
+            DeliveryResult(
+                channel, True,
+                f"{data.target_round}회는 이미 발송됨 — 중복 발송을 건너뜁니다",
+            )
+        )
+        return results
+
+    if channel == "telegram":
         load_env()
-        results.append(TelegramNotifier().send(data))
+        result = TelegramNotifier().send(data)
+        if result.ok and repo is not None:
+            repo.mark_delivered(data.target_round, channel)
+        results.append(result)
     return results
 
 

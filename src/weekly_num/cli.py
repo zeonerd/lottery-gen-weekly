@@ -88,7 +88,7 @@ def report(
             typer.echo(render_terminal(data))
 
         if send:
-            results = deliver(data, cfg, force=force)
+            results = deliver(data, cfg, force=force, repo=repo)
         else:
             results = [FileNotifier().send(data)]
         persist_recommendation(repo, data, cfg)
