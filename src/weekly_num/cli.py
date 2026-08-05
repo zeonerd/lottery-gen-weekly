@@ -9,6 +9,7 @@ import typer
 from .config import load_config
 from .drawer import draw_random, make_rng
 from .models import evaluate_rank, RANK_LABEL
+from .notifier.base import DeliveryResult
 from .notifier.file import FileNotifier
 from .notifier.telegram import TelegramNotifier, load_env
 from .pipeline import (
@@ -70,6 +71,7 @@ def report(
     seed: int | None = SeedOpt,
     no_sync: bool = typer.Option(False, "--no-sync", help="수집을 건너뜁니다"),
     send: bool = typer.Option(False, "--send", help="설정된 알림 채널로 발송합니다"),
+    html: bool = typer.Option(False, "--html", help="HTML 리포트도 함께 저장합니다"),
     force: bool = typer.Option(False, "--force", help="추첨이 지났어도 발송합니다"),
     quiet: bool = typer.Option(False, "--quiet", help="터미널 출력을 생략합니다"),
 ) -> None:
@@ -91,6 +93,13 @@ def report(
             results = [FileNotifier().send(data)]
         persist_recommendation(repo, data, cfg)
 
+        if html:
+            from .reporter.html import render as render_html
+
+            path = FileNotifier().path_for(data).with_suffix(".html")
+            path.write_text(render_html(data), encoding="utf-8")
+            results.append(DeliveryResult("html", True, str(path)))
+
         typer.echo("")
         for r in results:
             mark = "✅" if r.ok else "⚠"
@@ -106,6 +115,26 @@ def notify_test() -> None:
     typer.echo(f"{mark} {result.channel}: {result.detail}")
     if not result.ok:
         raise typer.Exit(1)
+
+
+@app.command()
+def backtest(
+    db: Path = DbOpt,
+    weeks: int = typer.Option(200, help="대상 회차 수"),
+    trials: int = typer.Option(100, help="회차당 시행 수 (몬테카를로)"),
+    seed: int | None = typer.Option(20260805, "--seed", help="재현용 시드"),
+) -> None:
+    """전략별 성적을 무작위 기준선과 나란히 비교합니다."""
+    from . import backtest as bt
+
+    cfg = load_config()
+    with Repository(db) as repo:
+        draws = repo.all_draws()
+    if len(draws) < cfg.analysis.window + 10:
+        typer.echo("회차 데이터가 부족합니다. 먼저 `weekly-num sync`를 실행하세요.", err=True)
+        raise typer.Exit(1)
+    results = bt.run(draws, cfg, weeks=weeks, trials=trials, seed=seed)
+    typer.echo(bt.render(results, cfg))
 
 
 @app.command()

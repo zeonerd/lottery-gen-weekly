@@ -34,15 +34,34 @@ from ..models import (
 TAIL_POSITION = NUM_POSITIONS - 1
 
 
-def _pick(
-    draws: list[Draw], position: int, candidates: list[int],
-    cfg: Config, rng: random.Random,
-) -> int:
-    """후보 중 하나를 고른다. R3가 켜져 있으면 잠복 기간으로 가중한다."""
-    if cfg.rules.cold_preference.enabled:
-        weights = rules.cold_weights(
-            draws, position, candidates, cfg.rules.cold_preference.weight
+#: 자리별 (후보, 가중치). 한 회차에 대해 한 번만 만들고 재사용한다.
+PickTable = list[tuple[list[int], list[float] | None]]
+
+
+def build_pick_table(
+    draws: list[Draw], position_logs: list[PositionLog], cfg: Config
+) -> PickTable:
+    """자리별 후보와 R3 가중치를 미리 계산한다.
+
+    가중치 계산은 잠복 기간 스캔이라 회차 수에 비례한다. 티켓마다 다시
+    계산하면 한 번 호출에 30회씩 반복되고, 백테스트에서는 그 비용이
+    수만 배로 불어난다. 회차당 한 번만 만든다.
+    """
+    table: PickTable = []
+    for p, log in enumerate(position_logs):
+        candidates = list(log.final)
+        weights = (
+            rules.cold_weights(draws, p, candidates, cfg.rules.cold_preference.weight)
+            if cfg.rules.cold_preference.enabled
+            else None
         )
+        table.append((candidates, weights))
+    return table
+
+
+def _pick(table: PickTable, position: int, rng: random.Random) -> int:
+    candidates, weights = table[position]
+    if weights:
         return rng.choices(candidates, weights=weights, k=1)[0]
     return rng.choice(candidates)
 
@@ -90,8 +109,7 @@ def _violations(
 
 
 def _compose(
-    draws: list[Draw],
-    position_logs: list[PositionLog],
+    table: PickTable,
     cfg: Config,
     rng: random.Random,
     tail: int | None,
@@ -106,9 +124,7 @@ def _compose(
     digits: tuple[int, ...] = ()
     reasons: list[str] = []
     for _ in range(MAX_RESAMPLE):
-        picked = tuple(
-            _pick(draws, p, list(position_logs[p].final), cfg, rng) for p in positions
-        )
+        picked = tuple(_pick(table, p, rng) for p in positions)
         digits = picked + (tail,) if tail is not None else picked
         reasons = _violations(digits, cfg, bounds)
         if not reasons:
@@ -124,18 +140,25 @@ def build_recommendation(
     position_logs: list[PositionLog],
     cfg: Config,
     rng: random.Random,
+    table: PickTable | None = None,
+    bounds: tuple[int, int] | None = None,
 ) -> Recommendation:
-    """소거 결과로부터 최종 5장을 구성한다."""
+    """소거 결과로부터 최종 5장을 구성한다.
+
+    `table`과 `bounds`는 회차당 한 번만 계산하면 되는 값이다. 백테스트처럼
+    같은 회차로 여러 번 뽑을 때 밖에서 만들어 넘기면 재계산을 피할 수 있다.
+    """
     count = cfg.strategy.tickets
     notes: list[str] = []
-    bounds = (
-        rules.sum_bounds(draws, cfg.rules.sum_range.low_pct, cfg.rules.sum_range.high_pct)
-        if cfg.rules.sum_range.enabled
-        else None
-    )
+    if table is None:
+        table = build_pick_table(draws, position_logs, cfg)
+    if bounds is None and cfg.rules.sum_range.enabled:
+        bounds = rules.sum_bounds(
+            draws, cfg.rules.sum_range.low_pct, cfg.rules.sum_range.high_pct
+        )
 
     if cfg.strategy.mode == "concentrate":
-        digits, note = _compose(draws, position_logs, cfg, rng, None, bounds)
+        digits, note = _compose(table, cfg, rng, None, bounds)
         if note:
             notes.append(note)
         tickets = [Ticket(g, digits) for g in GROUPS[:count]]
@@ -148,7 +171,7 @@ def build_recommendation(
 
     tickets: list[Ticket] = []
     for group_no, tail in zip(GROUPS[:count], tails):
-        digits, warn = _compose(draws, position_logs, cfg, rng, tail, bounds)
+        digits, warn = _compose(table, cfg, rng, tail, bounds)
         if warn:
             notes.append(f"{group_no}조: {warn}")
         tickets.append(Ticket(group_no=group_no, digits=digits))

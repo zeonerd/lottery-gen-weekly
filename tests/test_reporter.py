@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from weekly_num.pipeline import build_report
-from weekly_num.reporter import markdown, terminal
+from weekly_num.reporter import html, markdown, terminal
 from weekly_num.reporter.disclaimer import DISCLAIMER_MARKERS, assert_present
 
 
@@ -14,10 +14,25 @@ def data(draws, cfg):
     return build_report(draws, cfg, seed=99)
 
 
-@pytest.mark.parametrize("render", [markdown.render, terminal.render])
+@pytest.mark.parametrize("render", [markdown.render, terminal.render, html.render])
 def test_disclaimer_present(data, render) -> None:
     """모든 렌더러 출력에 고지문이 들어 있어야 한다."""
     assert_present(render(data))
+
+
+def test_html_is_self_contained(data) -> None:
+    """외부 CSS·폰트·스크립트를 참조하지 않아야 오프라인에서 그대로 열린다."""
+    text = html.render(data)
+    assert "<!doctype html>" in text.lower()
+    for external in ("http://", "https://", "<script"):
+        assert external not in text
+
+
+def test_html_escapes_untrusted_text(data) -> None:
+    data.warnings.append("<img src=x onerror=alert(1)>")
+    text = html.render(data)
+    assert "<img src=x" not in text
+    assert "&lt;img" in text
 
 
 @pytest.mark.parametrize("marker", DISCLAIMER_MARKERS)
