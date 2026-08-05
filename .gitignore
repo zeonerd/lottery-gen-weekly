@@ -1,0 +1,26 @@
+# 자격증명 — 절대 커밋 금지 (PRD F4-6 / RK9)
+.env
+.env.local
+*.token
+
+# 데이터·산출물
+data/
+reports/
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# macOS / 에디터
+.DS_Store
+.idea/
+.vscode/
