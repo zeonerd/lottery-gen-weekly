@@ -1,0 +1,28 @@
+locale: ko             # 리포트 언어
+
+analysis:
+  window: 100          # 분석 대상 최근 회차 수 (0 = 전체) — 오너 결정: 100
+  min_candidates: 2    # 자리별 최소 후보 수 (Guard, PRD F2-4)
+
+rules:
+  recent_exclusion:    # R1 — 최근 n회차에 나온 숫자 제외
+    enabled: true
+    n: 3
+  hot_exclusion:       # R2 — 출현 빈도 상위 k개 제외
+    enabled: true
+    top_k: 2
+  cold_preference:     # R3 — 오래 잠든 숫자에 가산점 (소거 아님, 선택 가중치)
+    enabled: true
+    weight: 1.5
+
+strategy:
+  mode: spread         # spread | concentrate  (기본: spread)
+  tickets: 5           # 주간 구매 장수
+  tail_diversity: true # R8 — false로 두면 설정 검증에서 오류. 분산 전략의 전제.
+
+notify:
+  channel: file        # Phase 2에서 telegram 으로 전환
+  schedule: "WED 20:00"
+  parse_mode: HTML     # Telegram 전용. MarkdownV2 금지 (PRD F4-4)
+  fallback_to_file: true
+  # 봇 토큰과 chat_id는 여기 두지 않는다 → .env (PRD F4-6)
